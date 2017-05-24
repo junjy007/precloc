@@ -1,2 +1,6 @@
 *
 !.gitignore
+!jquery.js
+!labelling.html
+!*.py
+__init__.py
