@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style type="text/css">
+    <!--
+    .tab { margin-left: 40px; }
+    -->
+    </style>
+    <script src="jquery.js"></script>
+    <script type="text/javascript">
+
+    var sample_list_file = "test_clip_2017_03_1/labelled_samples2.json";
+    var roi = {'top':0, 'left':0, 'width':0, 'height':0};
+
+    var canvas, ctx,
+        bkcanvas, bkctx,
+        sample_id_txt, sample_info,
+        labelling_flag = true,
+        currX = 0,
+        currY = 0,
+        labelX = 0,
+        labelY = 0,
+        allLabelX = [], allLabelY = [],
+        sample_id = 0,
+        training_samples,
+        sample_list_ready = false,
+        btn_next, btn_save;
+
+    var canvas_to_image_ratio_w = 1.0,
+        canvas_to_image_ratio_h = 1.0;
+
+
+    function init() {
+        canvas = document.getElementById('can');
+        ctx = canvas.getContext('2d');
+        sample_info = document.getElementById('sample_info');
+        sample_id_txt = document.getElementById('sample_id');
+        bkcanvas = document.getElementById('canbk');
+        bkctx = bkcanvas.getContext('2d');
+        btn_next = document.getElementById('next_btn');
+        btn_save = document.getElementById('save_btn');
+        w = canvas.width;  // background canvas has the same size
+        h = canvas.height;
+
+        canvas.addEventListener("mousemove", function (e) { findxy('move', e) }, false);
+        canvas.addEventListener("mousedown", function (e) { findxy('down', e) }, false);
+        canvas.addEventListener("mouseup", function (e) { findxy('up', e) }, false);
+        canvas.addEventListener("mouseout", function (e) { findxy('out', e) }, false);
+
+        load_sample_list();  // now training samples is populated
+    }
+
+    function load_sample_list() {
+        console.log("Start Loading" + sample_list_file);
+        $.getJSON( sample_list_file, function( data ) {
+            console.log("Loading done" + sample_list_file);
+            roi = data["roi"];
+            training_samples = data["samples"];
+            console.log("Load JSON done, got " + training_samples.length + " training samples");
+            sample_list_ready = true;
+            sample_id = 0;
+            load_sample(sample_id);
+        });
+    }
+
+    function saveText(text, filename){
+        var a = document.createElement('a');
+        a.setAttribute('href', 'data:text/plain;charset=utf-u,'+encodeURIComponent(text));
+        a.setAttribute('download', filename);
+        a.click()
+    }
+
+    function load_sample(sid) {
+        if (sample_list_ready) {
+            fname = training_samples[sid][0];
+            console.log(fname);
+            var background = new Image();
+            background.src = fname;
+            var wt = 0;
+
+            function fn_load() {
+                if (!background.complete) {
+                    sample_info.innerHTML = "Loading ..." + wt;
+                    wt += 10;
+                    setTimeout(fn_load, 10); // re-try me a little while later
+                } else {
+                    bkctx.drawImage(background,
+                        roi['left'], roi['top'], roi['width'], roi['height'],
+                        0, 0, w, h);
+                    sample_id_txt.value = sid;
+                    canvas_to_image_ratio_w = w / roi['width'];
+                    canvas_to_image_ratio_h = h / roi['height'];
+                    // recover saved labelling
+                    allLabelX = training_samples[sid][1];
+                    allLabelY = training_samples[sid][2];
+                    currX = -2;
+                    currY = -2;
+                    draw_label();
+                    console.log("Load image " + fname + " width: " + background.width
+                        + " height: " + background.height
+                        + " wr: " + canvas_to_image_ratio_w
+                        + " hr: " + canvas_to_image_ratio_h);
+
+                }
+            }
+
+            fn_load();
+            labelling_flag = true;
+        }
+
+    }
+
+    function stash_current_label(){
+        training_samples[sample_id][1] = allLabelX;
+        training_samples[sample_id][2] = allLabelY;
+    }
+
+    function load_next() {
+        stash_current_label();
+        sample_id ++;
+        if (sample_id >= training_samples.length) {
+            sample_id = 0;
+        }
+        erase();
+        load_sample(sample_id);
+    }
+
+    function goto_sample() {
+        stash_current_label();
+        sample_id = parseInt(sample_id_txt.value);
+        if (sample_id < training_samples.length && sample_id>=0) {
+            erase();
+            load_sample(sample_id);
+            console.log("goto " + sample_id);
+        }
+    }
+
+    function reset_label() {
+        labelX = -1;
+        labelY = -1;
+        currX  = labelX * canvas_to_image_ratio_w;
+        currY  = labelY * canvas_to_image_ratio_h;
+        labelling_flag = true;
+        allLabelX = [];
+        allLabelY = [];
+        erase();
+    }
+
+    function erase() {
+        print_label_info();
+        ctx.clearRect(0, 0, w, h);
+    }
+
+    function save() {
+        stash_current_label();
+        saveText(JSON.stringify({"roi": roi, "samples": training_samples}), 'test2.json')
+    }
+
+    function print_label_info(){
+        var lx, ly, rx, ry;
+        var htmlStr = "/" + training_samples.length
+            + "  " + training_samples[sample_id][0] + " <br> \n "
+            + "<p style=\"margin-left: 40px\">";
+        for (var i=0; i<allLabelX.length; ++i) {
+            lx = allLabelX[i];
+            ly = allLabelY[i];
+            rx = lx - roi['left'];
+            ry = ly - roi['top'];
+            htmlStr += "P" + i + " ROI (" + rx.toFixed(2) + ", " + ry.toFixed(2) + ")"
+                + "  Image (" + lx.toFixed(2) + ", " + ly.toFixed(2) + ") <br>";
+        }
+        if (allLabelX.length==0) {
+            htmlStr += "No label points.<br>";
+        }
+        if (currX > 0 && currY > 0){
+            lx = allLabelX[i];
+            ly = allLabelY[i];
+            rx = currX / canvas_to_image_ratio_w;
+            ry = currY / canvas_to_image_ratio_h;
+            lx = rx + roi['left'];
+            ly = ry + roi['top'];
+            htmlStr += "Current P" + " ROI (" + rx.toFixed(2) + ", " + ry.toFixed(2) + ")"
+                + "  Image (" + lx.toFixed(2) + ", " + ly.toFixed(2) + ") <br>";
+        }
+        htmlStr += "</p>"
+        sample_info.innerHTML = htmlStr;
+    }
+
+    function draw_label() {
+        ctx.beginPath();
+        if (allLabelX.length>0) {
+            ctx.moveTo((allLabelX[0] - roi['left']) * canvas_to_image_ratio_w,
+                (allLabelY[0] - roi['top']) * canvas_to_image_ratio_h);
+            for (var i=1; i<allLabelX.length; ++i){
+                ctx.lineTo((allLabelX[i] - roi['left']) * canvas_to_image_ratio_w,
+                (allLabelY[i] - roi['top']) * canvas_to_image_ratio_h);
+            }
+            ctx.strokeStyle = "red";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            if (currX>0 && currY>0) {
+                ctx.lineTo(currX, currY);
+                ctx.strokeStyle = "blue";
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+        }
+        for (var i=0; i<allLabelX.length; ++i){
+            ctx.fillStyle = "green";
+            ctx.fillRect((allLabelX[i] - roi['left']) * canvas_to_image_ratio_w - 3,
+                (allLabelY[i] - roi['top']) * canvas_to_image_ratio_h - 3, 7, 7);
+        }
+        if (currX>0 && currY>0) {
+            ctx.fillStyle = "green";
+            ctx.fillRect(currX - 3, currY - 3, 7, 7);
+            ctx.closePath();
+        }
+        print_label_info();
+    }
+
+    function findxy(res, e) {
+        if (res == 'down') {
+            currX = e.clientX - canvas.offsetLeft;
+            currY = e.clientY - canvas.offsetTop;
+            labelX = currX / canvas_to_image_ratio_w + roi['left'];
+            labelY = currY / canvas_to_image_ratio_h + roi['top'];
+            allLabelX.push(labelX)
+            allLabelY.push(labelY)
+            erase()
+            draw_label();
+        }
+        if (res == 'move') {
+            if (labelling_flag) {
+                currX = e.clientX - canvas.offsetLeft;
+                currY = e.clientY - canvas.offsetTop;
+                erase();
+                draw_label();
+            }
+        }
+        if (res == 'out') {
+            currX = -1;
+            currY = -1;
+            erase();
+            draw_label();
+        }
+    }
+    </script>
+</head>
+<body onload="init()">
+    <canvas id="canbk" width="1200" height="1000" style="position:absolute;top:10px;left:10px;border:2px solid;"></canvas>
+    <canvas id="can" width="1200" height="1000" style="position:absolute;top:10px;left:10px;border:2px solid;"></canvas>
+    <input type="button" value="NEXT" id="next_btn" size="60" onclick="load_next()" style="position:absolute;top:10px;left:1220px;">
+    <input type="button" value="NOT FOUND" id="clr_btn" size="40" onclick="reset_label()" style="position:absolute;top:10px;left:1280px;">
+    <input type="text" value="" id="sample_id" size="6" style="position: absolute;top:30px;left:1220px">
+    <div style="position:absolute;top:30px;left:1270px" id="sample_info">SAMPLE INFORMATION</div>
+    <input type="button" value="SAVE" id="save_btn" size="30" onclick="save()" style="position:absolute;top:10px;left:1400px;">
+    <input type="button" value="GO" id="go_btn" size="30" onclick="goto_sample()" style="position:absolute;top:50px;left:1220px;">
+</body>
+</html>
+
